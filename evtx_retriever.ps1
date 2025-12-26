@@ -52,7 +52,7 @@ function logHandler($server, $baseName) {
         $localFile  = Join-Path $serverDir ("${($logName.Replace('/','_'))}_${timestamp}.evtx")
 
         try {
-            # 直近24時間のクエリ（86400000ミリ秒）
+            # 直近24時間のクエリ（86400000ミリ秒）。※HTMLエスケープなしで <= を使用。
             Invoke-Command -ComputerName $server -Credential $cred -ArgumentList $logName, $remoteFile -ScriptBlock {
                 param($logName, $remotePath)
                 $query = "*[System[TimeCreated[timediff(@SystemTime) <= 86400000]]]"
@@ -83,7 +83,7 @@ function logHandler($server, $baseName) {
                     continue
                 }
 
-                # リモート一時ファイルの削除（PSSession経由）
+                # リモート一時ファイルの削除（PSSession経由で1回のみ）
                 try {
                     Invoke-Command -Session $session -ArgumentList $remoteFile -ScriptBlock {
                         param($p)
@@ -107,10 +107,17 @@ function logHandler($server, $baseName) {
 # ホストリストに対して処理
 Get-ChildItem -Path ${filePath}\hosts | ForEach-Object { ProcessServerListFile $_.FullName }
 
-# 収集結果を監視側へ移動
+# watchdogから過去のログを削除
+Get-ChildItem -Path "C:\admin\evtx-watchdog\evtx" -Directory -ErrorAction Stop | ForEach-Object {
+    $dir = $_.FullName
+    Write-Host "[$(Get-Date)] Removing directory and contents: $dir"
+    Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop
+}
+
+# 収集結果をwatchdog側へ移動
 robocopy $outDir "C:\admin\evtx-watchdog\evtx" /E /MOVE /R:1 /W:1
 
-# 7日以上前のレポートディレクトリを削除
-Get-ChildItem -Path 'C:\admin\evtx-watchdog\reports\' -Directory |
-    Where-Object { $_.CreationTime -lt (Get-Date).AddDays(-7) } |
+# 半年以上前のレポートディレクトリを削除
+Get-ChildItem -Path 'C:\admin\evtx-watchdog\reports' -Directory |
+    Where-Object { $_.CreationTime -lt (Get-Date).AddDays(-180) } |
     Remove-Item -Recurse -Force -ErrorAction Continue
